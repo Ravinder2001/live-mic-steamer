@@ -57,7 +57,7 @@
     <div class="card" id="senderCard" style="display: none">
       <h3>Sender</h3>
       <p>Mic preview:</p>
-      <audio id="localAudio" autoplay muted controls></audio>
+      <audio id="localAudio" autoplay muted style="display: none"></audio>
       <div style="margin-top: 8px">Use browser mic permission.</div>
     </div>
     <div class="card" id="receiverCard" style="display: none">
@@ -69,6 +69,9 @@
         <button id="stopRecordBtn" disabled>Stop & Save</button>
         <a id="downloadLink" style="display: none" download="recording.webm">Download Recording</a>
       </div>
+      <div style="margin-top: 8px">
+        <button id="disconnectBtn" style="background: #e74c3c; color: white">Disconnect</button>
+      </div>
     </div>
     <script>
       const startBtn = document.getElementById("startBtn");
@@ -79,6 +82,7 @@
       const receiverCard = document.getElementById("receiverCard");
       const localAudio = document.getElementById("localAudio");
       const remoteAudio = document.getElementById("remoteAudio");
+      const disconnectBtn = document.getElementById("disconnectBtn");
       let ws;
       let pc;
       let localStream;
@@ -88,14 +92,14 @@
       let recordedChunks = [];
 
       function safeSend(msgObj) {
-  const json = JSON.stringify(msgObj);
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(json);
-  } else {
-    // retry when connection opens
-    ws.addEventListener('open', () => ws.send(json), { once: true });
-  }
-}
+        const json = JSON.stringify(msgObj);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(json);
+        } else {
+          // retry when connection opens
+          ws.addEventListener("open", () => ws.send(json), { once: true });
+        }
+      }
 
       function logStatus(msg) {
         statusDiv.textContent = msg;
@@ -107,7 +111,7 @@
         ws = new WebSocket(wsUrl);
         ws.onopen = () => {
           logStatus("Connected to signaling server");
-          safeSend({ type: 'join', room });
+          safeSend({ type: "join", room });
         };
         ws.onmessage = async (ev) => {
           const data = JSON.parse(ev.data);
@@ -118,8 +122,7 @@
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-           safeSend({ type: 'answer', room, payload: pc.localDescription });
-
+            safeSend({ type: "answer", room, payload: pc.localDescription });
           } else if (type === "answer") {
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
           } else if (type === "ice") {
@@ -128,6 +131,15 @@
             } catch (e) {
               console.warn("Error adding ICE", e);
             }
+          }
+          if (type === "disconnect") {
+            logStatus("Disconnected by remote peer.");
+            if (pc) pc.close();
+            if (ws) ws.close();
+            if (remoteAudio) remoteAudio.srcObject = null;
+            if (localAudio) localAudio.srcObject = null;
+            alert("Connection closed by other side.");
+            return;
           }
         };
         ws.onclose = () => logStatus("Signaling connection closed");
@@ -147,17 +159,18 @@
         pc = new RTCPeerConnection(config);
         pc.onicecandidate = (ev) => {
           if (ev.candidate) {
-            safeSend({ type: 'ice', room, payload: ev.candidate });
-
+            safeSend({ type: "ice", room, payload: ev.candidate });
           }
         };
         if (mode === "sender") {
           try {
             localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
             localAudio.srcObject = localStream;
+            localAudio.volume = 0;
+
             remoteAudio.play().catch(() => {
-  console.log('Autoplay blocked; tap to start playback');
-});
+              console.log("Autoplay blocked; tap to start playback");
+            });
 
             // add track(s) to peer connection
             for (const track of localStream.getTracks()) {
@@ -166,7 +179,7 @@
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             // send offer to other peers
-           safeSend({ type: 'offer', room, payload: pc.localDescription });
+            safeSend({ type: "offer", room, payload: pc.localDescription });
 
             logStatus("Streaming microphone. Waiting for receivers...");
           } catch (e) {
@@ -178,13 +191,13 @@
           remoteStream = new MediaStream();
           remoteAudio.srcObject = remoteStream;
           remoteAudio.play().catch(() => {
-  console.log('Autoplay blocked; tap to start playback');
-});
+            console.log("Autoplay blocked; tap to start playback");
+          });
 
           pc.ontrack = (event) => {
-            console.log('Received track', event.streams[0]);
-  remoteStream = event.streams[0];
-  remoteAudio.srcObject = remoteStream;
+            console.log("Received track", event.streams[0]);
+            remoteStream = event.streams[0];
+            remoteAudio.srcObject = remoteStream;
             // add tracks received to remoteStream
             for (const track of event.streams[0].getTracks()) {
               remoteStream.addTrack(track);
@@ -234,6 +247,25 @@
         if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
         recordBtn.disabled = false;
         stopRecordBtn.disabled = true;
+      };
+
+      disconnectBtn.onclick = () => {
+        if (pc) {
+          pc.close();
+          pc = null;
+        }
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          safeSend({ type: "disconnect", room });
+          ws.close();
+        }
+        if (remoteAudio) {
+          remoteAudio.srcObject = null;
+        }
+        if (localAudio) {
+          localAudio.srcObject = null;
+        }
+        logStatus("Connection closed.");
+        alert("Connection closed on both sides.");
       };
       // small helper: ensure page served from same origin as server so ws uses correct host
     </script>

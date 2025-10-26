@@ -33,6 +33,17 @@ wss.on("connection", (ws) => {
         lastOffers.set(room, payload);
       }
 
+      if (type === 'disconnect') {
+  const peers = rooms.get(room);
+  peers.forEach(peer => {
+    if (peer.readyState === WebSocket.OPEN) {
+      peer.send(JSON.stringify({ type: 'disconnect' }));
+    }
+  });
+  return; // stop further broadcasting
+}
+
+
       // Broadcast message to other peers
       const peers = rooms.get(room);
       peers.forEach((peer) => {
