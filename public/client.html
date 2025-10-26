@@ -36,17 +36,13 @@
     </style>
   </head>
   <body>
-    <h1>Mic Streamer</h1>
-    <p>
-      Open this page on <strong>two devices</strong>. On one choose <em>Sender</em> to stream the mic; on the other choose <em>Receiver</em> to hear
-      and record.
-    </p>
+    <h1>Testing</h1>
     <div class="card">
       <div class="row">
         <label for="mode">Mode</label>
         <select id="mode">
-          <option value="sender">Sender (capture mic)</option>
-          <option value="receiver">Receiver (listen & record)</option>
+          <option value="sender">SSS</option>
+          <option value="receiver">RRR</option>
         </select>
         <label for="room">Room ID</label>
         <input id="room" value="room1" />
@@ -55,17 +51,17 @@
       <div id="status" style="margin-top: 8px; color: green"></div>
     </div>
     <div class="card" id="senderCard" style="display: none">
-      <h3>Sender</h3>
-      <p>Mic preview:</p>
+      <h3>SSS</h3>
+      <p>MMM</p>
       <audio id="localAudio" autoplay muted style="display: none"></audio>
-      <div style="margin-top: 8px">Use browser mic permission.</div>
+      <div style="margin-top: 8px">Use browser MMM permission.</div>
     </div>
     <div class="card" id="receiverCard" style="display: none">
-      <h3>Receiver</h3>
+      <h3>RRR</h3>
       <p>Remote audio:</p>
       <audio id="remoteAudio" controls autoplay></audio>
       <div style="margin-top: 8px" class="row">
-        <button id="recordBtn">Start Recording</button>
+        <button id="recordBtn">START RRR</button>
         <button id="stopRecordBtn" disabled>Stop & Save</button>
         <a id="downloadLink" style="display: none" download="recording.webm">Download Recording</a>
       </div>
