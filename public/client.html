@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Mic Streamer (Sender / Receiver)</title>
+    <style>
+      body {
+        font-family: system-ui, Arial;
+        max-width: 900px;
+        margin: 24px auto;
+        padding: 12px;
+      }
+      .row {
+        display: flex;
+        gap: 12px;
+        align-items: center;
+      }
+      label {
+        font-weight: 600;
+      }
+      textarea {
+        width: 100%;
+        height: 80px;
+      }
+      .card {
+        border: 1px solid #ddd;
+        padding: 12px;
+        border-radius: 8px;
+        marginbottom: 12px;
+      }
+      button {
+        padding: 8px 12px;
+        border-radius: 6px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Mic Streamer</h1>
+    <p>
+      Open this page on <strong>two devices</strong>. On one choose <em>Sender</em> to stream the mic; on the other choose <em>Receiver</em> to hear
+      and record.
+    </p>
+    <div class="card">
+      <div class="row">
+        <label for="mode">Mode</label>
+        <select id="mode">
+          <option value="sender">Sender (capture mic)</option>
+          <option value="receiver">Receiver (listen & record)</option>
+        </select>
+        <label for="room">Room ID</label>
+        <input id="room" value="room1" />
+        <button id="startBtn">Start</button>
+      </div>
+      <div id="status" style="margin-top: 8px; color: green"></div>
+    </div>
+    <div class="card" id="senderCard" style="display: none">
+      <h3>Sender</h3>
+      <p>Mic preview:</p>
+      <audio id="localAudio" autoplay muted controls></audio>
+      <div style="margin-top: 8px">Use browser mic permission.</div>
+    </div>
+    <div class="card" id="receiverCard" style="display: none">
+      <h3>Receiver</h3>
+      <p>Remote audio:</p>
+      <audio id="remoteAudio" controls autoplay></audio>
+      <div style="margin-top: 8px" class="row">
+        <button id="recordBtn">Start Recording</button>
+        <button id="stopRecordBtn" disabled>Stop & Save</button>
+        <a id="downloadLink" style="display: none" download="recording.webm">Download Recording</a>
+      </div>
+    </div>
+    <script>
+      const startBtn = document.getElementById("startBtn");
+      const modeSelect = document.getElementById("mode");
+      const roomInput = document.getElementById("room");
+      const statusDiv = document.getElementById("status");
+      const senderCard = document.getElementById("senderCard");
+      const receiverCard = document.getElementById("receiverCard");
+      const localAudio = document.getElementById("localAudio");
+      const remoteAudio = document.getElementById("remoteAudio");
+      let ws;
+      let pc;
+      let localStream;
+      let remoteStream;
+      // Recording state (receiver)
+      let mediaRecorder;
+      let recordedChunks = [];
+      function logStatus(msg) {
+        statusDiv.textContent = msg;
+      }
+      function connectWebSocket(room) {
+        // change host if server is remote
+        const loc = window.location;
+        const wsUrl = (loc.protocol === "https:" ? "wss:" : "ws:") + "//" + loc.host;
+        ws = new WebSocket(wsUrl);
+        ws.onopen = () => {
+          logStatus("Connected to signaling server");
+          ws.send(JSON.stringify({ type: 'join', room }));
+        };
+        ws.onmessage = async (ev) => {
+          const data = JSON.parse(ev.data);
+          const { type, payload } = data;
+          console.debug("WS recv", type);
+          if (!pc) console.warn("No peer connection yet");
+          if (type === "offer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload));
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
+            ws.send(JSON.stringify({ type: "answer", room, payload: pc.localDescription }));
+          } else if (type === "answer") {
+            await pc.setRemoteDescription(new RTCSessionDescription(payload));
+          } else if (type === "ice") {
+            try {
+              await pc.addIceCandidate(payload);
+            } catch (e) {
+              console.warn("Error adding ICE", e);
+            }
+          }
+        };
+        ws.onclose = () => logStatus("Signaling connection closed");
+        ws.onerror = (e) => console.error("WS error", e);
+        return ws;
+      }
+      startBtn.onclick = async () => {
+        const mode = modeSelect.value;
+        const room = roomInput.value || "room1";
+        // show relevant card
+        senderCard.style.display = mode === "sender" ? "block" : "none";
+        receiverCard.style.display = mode === "receiver" ? "block" : "none";
+        logStatus("Starting...");
+        // connect ws
+        connectWebSocket(room);
+        const config = { iceServers: [{ urls: "stun:stun.l.google.com:19302" }] };
+        pc = new RTCPeerConnection(config);
+        pc.onicecandidate = (ev) => {
+          if (ev.candidate) {
+            ws.send(JSON.stringify({ type: "ice", room, payload: ev.candidate }));
+          }
+        };
+        if (mode === "sender") {
+          try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            localAudio.srcObject = localStream;
+            remoteAudio.play().catch(() => {
+  console.log('Autoplay blocked; tap to start playback');
+});
+
+            // add track(s) to peer connection
+            for (const track of localStream.getTracks()) {
+              pc.addTrack(track, localStream);
+            }
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            // send offer to other peers
+            ws.send(JSON.stringify({ type: "offer", room, payload: pc.localDescription }));
+            logStatus("Streaming microphone. Waiting for receivers...");
+          } catch (e) {
+            console.error(e);
+            logStatus("Error accessing microphone: " + e.message);
+          }
+        } else {
+          // receiver
+          remoteStream = new MediaStream();
+          remoteAudio.srcObject = remoteStream;
+          remoteAudio.play().catch(() => {
+  console.log('Autoplay blocked; tap to start playback');
+});
+
+          pc.ontrack = (event) => {
+            console.log('Received track', event.streams[0]);
+  remoteStream = event.streams[0];
+  remoteAudio.srcObject = remoteStream;
+            // add tracks received to remoteStream
+            for (const track of event.streams[0].getTracks()) {
+              remoteStream.addTrack(track);
+            }
+          };
+          logStatus("Receiver ready — waiting for offer...");
+        }
+      };
+      // Recording controls (receiver)
+      const recordBtn = document.getElementById("recordBtn");
+      const stopRecordBtn = document.getElementById("stopRecordBtn");
+      const downloadLink = document.getElementById("downloadLink");
+      recordBtn.onclick = () => {
+        if (!remoteAudio.srcObject && !remoteStream) {
+          alert("No remote audio yet. Start sender first.");
+          return;
+        }
+        recordedChunks = [];
+        // prefer remoteStream (if constructed)
+        const streamToRecord = remoteStream || remoteAudio.srcObject;
+        if (!streamToRecord) {
+          alert("No stream to record");
+          return;
+        }
+        try {
+          mediaRecorder = new MediaRecorder(streamToRecord);
+        } catch (e) {
+          alert("Recording not supported: " + e.message);
+          return;
+        }
+        mediaRecorder.ondataavailable = (ev) => {
+          if (ev.data && ev.data.size > 0) recordedChunks.push(ev.data);
+        };
+        mediaRecorder.onstop = () => {
+          const blob = new Blob(recordedChunks, { type: "audio/webm" });
+          const url = URL.createObjectURL(blob);
+          downloadLink.href = url;
+          downloadLink.style.display = "inline-block";
+          downloadLink.textContent = "Download recording (webm)";
+        };
+        mediaRecorder.start();
+        recordBtn.disabled = true;
+        stopRecordBtn.disabled = false;
+        downloadLink.style.display = "none";
+      };
+      stopRecordBtn.onclick = () => {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
+        recordBtn.disabled = false;
+        stopRecordBtn.disabled = true;
+      };
+      // small helper: ensure page served from same origin as server so ws uses correct host
+    </script>
+  </body>
+</html>
