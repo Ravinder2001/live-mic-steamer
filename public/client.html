@@ -86,6 +86,17 @@
       // Recording state (receiver)
       let mediaRecorder;
       let recordedChunks = [];
+
+      function safeSend(msgObj) {
+  const json = JSON.stringify(msgObj);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(json);
+  } else {
+    // retry when connection opens
+    ws.addEventListener('open', () => ws.send(json), { once: true });
+  }
+}
+
       function logStatus(msg) {
         statusDiv.textContent = msg;
       }
@@ -96,7 +107,7 @@
         ws = new WebSocket(wsUrl);
         ws.onopen = () => {
           logStatus("Connected to signaling server");
-          ws.send(JSON.stringify({ type: 'join', room }));
+          safeSend({ type: 'join', room });
         };
         ws.onmessage = async (ev) => {
           const data = JSON.parse(ev.data);
@@ -107,7 +118,8 @@
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            ws.send(JSON.stringify({ type: "answer", room, payload: pc.localDescription }));
+           safeSend({ type: 'answer', room, payload: pc.localDescription });
+
           } else if (type === "answer") {
             await pc.setRemoteDescription(new RTCSessionDescription(payload));
           } else if (type === "ice") {
@@ -135,7 +147,8 @@
         pc = new RTCPeerConnection(config);
         pc.onicecandidate = (ev) => {
           if (ev.candidate) {
-            ws.send(JSON.stringify({ type: "ice", room, payload: ev.candidate }));
+            safeSend({ type: 'ice', room, payload: ev.candidate });
+
           }
         };
         if (mode === "sender") {
@@ -153,7 +166,8 @@
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
             // send offer to other peers
-            ws.send(JSON.stringify({ type: "offer", room, payload: pc.localDescription }));
+           safeSend({ type: 'offer', room, payload: pc.localDescription });
+
             logStatus("Streaming microphone. Waiting for receivers...");
           } catch (e) {
             console.error(e);
