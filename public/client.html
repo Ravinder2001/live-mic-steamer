@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <link rel="manifest" href="/manifest.json">
+
+<meta name="theme-color" content="#000000">
     <title>Mic Streamer (Sender / Receiver)</title>
     <style>
       body {
@@ -263,6 +266,10 @@
         logStatus("Connection closed.");
         alert("Connection closed on both sides.");
       };
+
+      if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.register("/service-worker.js");
+}
       // small helper: ensure page served from same origin as server so ws uses correct host
     </script>
   </body>

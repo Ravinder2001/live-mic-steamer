@@ -1,5 +1,4 @@
-// server.js
-// Simple signaling server with "late join" support
+// server.js (Improved WebRTC signaling + late join + safer flow)
 
 const express = require("express");
 const http = require("http");
@@ -10,68 +9,65 @@ const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
 
-// Serve static client
+// Serve static PWA client
 app.use(express.static(path.join(__dirname, "public")));
 
-
-// Keep track of room members and last offer
-const rooms = new Map(); // roomId -> Set of sockets
-const lastOffers = new Map(); // roomId -> last SDP offer (for late joiners)
+const rooms = new Map();       // roomId → Set<socket>
+const lastOffer = new Map();   // roomId → SDP offer
+const lastAnswer = new Map();  // roomId → SDP answer
 
 wss.on("connection", (ws) => {
   ws.on("message", (msg) => {
+    let data;
     try {
-      const data = JSON.parse(msg);
-      const { type, room, payload } = data;
-      if (!room) return;
-
-      if (!rooms.has(room)) rooms.set(room, new Set());
-      rooms.get(room).add(ws);
-
-      // 💡 Store last offer (for late join)
-      if (type === "offer") {
-        lastOffers.set(room, payload);
-      }
-
-      if (type === 'disconnect') {
-  const peers = rooms.get(room);
-  peers.forEach(peer => {
-    if (peer.readyState === WebSocket.OPEN) {
-      peer.send(JSON.stringify({ type: 'disconnect' }));
+      data = JSON.parse(msg);
+    } catch {
+      return;
     }
-  });
-  return; // stop further broadcasting
-}
 
+    const { type, room, payload } = data;
+    if (!room) return;
 
-      // Broadcast message to other peers
-      const peers = rooms.get(room);
-      peers.forEach((peer) => {
-        if (peer !== ws && peer.readyState === WebSocket.OPEN) {
-          peer.send(JSON.stringify({ type, payload }));
-        }
-      });
+    // Create room if not exists
+    if (!rooms.has(room)) rooms.set(room, new Set());
+    rooms.get(room).add(ws);
 
-      // 💡 If new receiver joined, send last offer automatically
-      if (type === "join" && lastOffers.has(room)) {
-        const offer = lastOffers.get(room);
-        ws.send(JSON.stringify({ type: "offer", payload: offer }));
+    // Save last offer/answer for late join
+    if (type === "offer") lastOffer.set(room, payload);
+    if (type === "answer") lastAnswer.set(room, payload);
+
+    // 💥 FIXED: Correct join logic FIRST then send offer/answer
+    if (type === "join") {
+      if (lastOffer.has(room)) {
+        ws.send(JSON.stringify({ type: "offer", payload: lastOffer.get(room) }));
       }
-    } catch (e) {
-      console.error("Invalid message", e);
+      if (lastAnswer.has(room)) {
+        ws.send(JSON.stringify({ type: "answer", payload: lastAnswer.get(room) }));
+      }
+      return;
     }
+
+    // 💥 FIXED: Proper broadcast with room info
+    rooms.get(room).forEach((peer) => {
+      if (peer !== ws && peer.readyState === WebSocket.OPEN) {
+        peer.send(JSON.stringify({ type, room, payload }));
+      }
+    });
   });
 
   ws.on("close", () => {
-    for (const [roomId, set] of rooms.entries()) {
-      set.delete(ws);
-      if (set.size === 0) {
+    for (const [roomId, peers] of rooms) {
+      peers.delete(ws);
+
+      if (peers.size === 0) {
         rooms.delete(roomId);
-        lastOffers.delete(roomId);
+        lastOffer.delete(roomId);
+        lastAnswer.delete(roomId);
       }
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Signaling server running on http://localhost:${PORT}`));
+server.listen(3000, () =>
+  console.log("Signaling server running at http://localhost:3000")
+);
