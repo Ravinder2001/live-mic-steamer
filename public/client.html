@@ -30,7 +30,7 @@
         border: 1px solid #ddd;
         padding: 12px;
         border-radius: 8px;
-        marginbottom: 12px;
+        margin-bottom: 12px;
       }
       button {
         padding: 8px 12px;
@@ -154,6 +154,8 @@
           document.querySelector(".card").style.display = "none";
           senderCard.style.display = "none";
           receiverCard.style.display = "none";
+          document.body.style.backgroundColor = "black";
+          document.documentElement.style.backgroundColor = "black";
         } else {
           senderCard.style.display = "none";
           receiverCard.style.display = "block";
