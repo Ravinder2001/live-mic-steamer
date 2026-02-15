@@ -149,8 +149,15 @@
         const mode = modeSelect.value;
         const room = roomInput.value || "room1";
         // show relevant card
-        senderCard.style.display = mode === "sender" ? "block" : "none";
-        receiverCard.style.display = mode === "receiver" ? "block" : "none";
+        if (mode === "sender") {
+          document.querySelector("h1").style.display = "none";
+          document.querySelector(".card").style.display = "none";
+          senderCard.style.display = "none";
+          receiverCard.style.display = "none";
+        } else {
+          senderCard.style.display = "none";
+          receiverCard.style.display = "block";
+        }
         logStatus("Starting...");
         // connect ws
         connectWebSocket(room);
